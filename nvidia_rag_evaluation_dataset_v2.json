@@ -1,0 +1,482 @@
+[
+  {
+    "id": "q1",
+    "question": "What was NVIDIA's total revenue for fiscal 2026, and how did it change compared with fiscal 2025?",
+    "type": "numerical_comparison",
+    "expected_status": "complete",
+    "expected_answer": "NVIDIA reported total revenue of $215.9 billion for fiscal 2026. Fiscal 2025 revenue was $130.5 billion ($130,497 million), so fiscal 2026 revenue increased 65% year over year.",
+    "accepted_values": {
+      "revenue_fy2026": [
+        "215.9 billion",
+        "215,938 million",
+        "$215.9 billion",
+        "$215,938 million"
+      ],
+      "revenue_fy2025": [
+        "130.5 billion",
+        "130,497 million",
+        "$130.5 billion",
+        "$130,497 million"
+      ],
+      "growth": [
+        "65%",
+        "65 percent"
+      ]
+    },
+    "expected_evidence": [
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "23",
+        "keywords": [
+          "revenue",
+          "215.9 billion",
+          "65%"
+        ],
+        "supports": "FY2026 revenue of $215.9 billion and 65% year-over-year growth."
+      },
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "139",
+        "keywords": [
+          "215,938",
+          "130,497"
+        ],
+        "supports": "Exact revenue values: $215,938 million in FY2026 and $130,497 million in FY2025."
+      }
+    ],
+    "must_include": [],
+    "must_include_any": [],
+    "must_not_claim": [],
+    "expected_abstention": false,
+    "citation_required": true,
+    "baseline_observed_status": "complete"
+  },
+  {
+    "id": "q2",
+    "question": "What was NVIDIA's fiscal 2026 net income and diluted earnings per share?",
+    "type": "financial_metric",
+    "expected_status": "complete",
+    "expected_answer": "NVIDIA reported fiscal 2026 net income of $120,067 million (about $120.1 billion) and diluted earnings per share of $4.90.",
+    "accepted_values": {
+      "net_income": [
+        "120,067 million",
+        "$120,067 million",
+        "120.067 billion",
+        "$120.1 billion"
+      ],
+      "diluted_eps": [
+        "$4.90",
+        "4.90"
+      ]
+    },
+    "expected_evidence": [
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "151",
+        "keywords": [
+          "120,067",
+          "net income"
+        ],
+        "supports": "Net income of $120,067 million."
+      },
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "125",
+        "keywords": [
+          "120,067",
+          "4.90",
+          "net income"
+        ],
+        "supports": "Net income of $120,067 million and diluted EPS of $4.90."
+      },
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "23",
+        "keywords": [
+          "4.90",
+          "diluted"
+        ],
+        "supports": "FY2026 diluted EPS of $4.90."
+      }
+    ],
+    "must_include": [],
+    "must_include_any": [],
+    "must_not_claim": [],
+    "expected_abstention": false,
+    "citation_required": true,
+    "baseline_observed_status": "complete"
+  },
+  {
+    "id": "q3",
+    "question": "What were NVIDIA's Data Center revenues in fiscal 2026, and what percentage did they increase year over year?",
+    "type": "segment_metric",
+    "expected_status": "complete",
+    "expected_answer": "NVIDIA's Data Center revenue in fiscal 2026 was approximately $194 billion, representing a 68% year-over-year increase.",
+    "accepted_values": {
+      "revenue": [
+        "$194 billion",
+        "194 billion",
+        "$193.7 billion",
+        "193.7 billion"
+      ],
+      "growth": [
+        "68%",
+        "68 percent"
+      ]
+    },
+    "expected_evidence": [
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "14",
+        "keywords": [
+          "data center revenue",
+          "$194 billion",
+          "68 percent"
+        ],
+        "supports": "Data Center revenue reached $194 billion, up 68% year over year."
+      },
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "23",
+        "keywords": [
+          "data center",
+          "$193.7 billion"
+        ],
+        "supports": "Fiscal 2026 Data Center revenue of $193.7 billion in the market-platform summary."
+      },
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "125",
+        "keywords": [
+          "data center revenue",
+          "68%",
+          "year ago"
+        ],
+        "supports": "Data Center revenue was up 68% year over year."
+      }
+    ],
+    "must_include": [],
+    "must_include_any": [],
+    "must_not_claim": [],
+    "expected_abstention": false,
+    "citation_required": true,
+    "note": "The supplied report contains both $193.7B and approximately $194B representations; treat them as compatible rather than a contradiction.",
+    "baseline_observed_status": "complete"
+  },
+  {
+    "id": "q4",
+    "question": "What are the major risks NVIDIA identifies that could negatively affect its future revenue and financial performance?",
+    "type": "risk_analysis",
+    "expected_status": "complete",
+    "expected_answer": "The report identifies risks including shortages of data-center resources (capacity, energy, capital), supply-chain constraints, adverse economic conditions, international exposure, security/cyber risks, and general business disruptions.",
+    "expected_evidence": [
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "124",
+        "keywords": [
+          "data centers",
+          "energy",
+          "capital",
+          "future revenue",
+          "financial performance"
+        ],
+        "supports": "Data-center resources shortages could affect future revenue and financial performance."
+      },
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "105",
+        "keywords": [
+          "supply chain",
+          "revenue",
+          "financial results"
+        ],
+        "supports": "Supply-chain risks that can adversely affect revenue and financial results."
+      },
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "101",
+        "keywords": [
+          "adverse economic conditions",
+          "international sales",
+          "cyber-attacks",
+          "financial condition",
+          "business disruptions"
+        ],
+        "supports": "Adverse economic conditions, international exposure, security/cyber risks, and business disruptions."
+      }
+    ],
+    "must_include": [],
+    "must_include_any": [],
+    "must_not_claim": [
+      "The report ranks these risks by importance unless explicitly supported."
+    ],
+    "expected_abstention": false,
+    "citation_required": true,
+    "baseline_observed_status": "complete"
+  },
+  {
+    "id": "q5",
+    "question": "How could supply constraints, customer infrastructure limitations, and geopolitical tensions affect NVIDIA's revenue?",
+    "type": "multi_factor_risk",
+    "expected_status": "complete",
+    "expected_answer": "Supply constraints can impede product sales and cause revenue or market-share loss; customer infrastructure/capital limitations can delay deployments or reduce AI adoption; geopolitical tensions can disrupt supply continuity, alter regulations, affect market access, demand and profitability, and therefore affect revenue.",
+    "expected_evidence": [
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "103",
+        "keywords": [
+          "supply constraints",
+          "broader revenue impact",
+          "sell certain products"
+        ],
+        "supports": "Supply constraints can impede sales and cause revenue/market-share loss."
+      },
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "104",
+        "keywords": [
+          "access to capital",
+          "infrastructure projects",
+          "delay customer",
+          "AI adoption"
+        ],
+        "supports": "Limited customer access to capital can delay deployments and reduce AI adoption scale."
+      },
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "104",
+        "keywords": [
+          "geopolitical tensions",
+          "supply continuity",
+          "material adverse impact"
+        ],
+        "supports": "Geopolitical tensions can materially affect supply continuity."
+      },
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "109",
+        "keywords": [
+          "geopolitical tensions",
+          "regulatory requirements",
+          "market access",
+          "product demand",
+          "profitability"
+        ],
+        "supports": "Geopolitical tensions can alter regulatory requirements and affect operations, demand, market access and profitability."
+      }
+    ],
+    "must_include": [],
+    "must_include_any": [],
+    "must_not_claim": [
+      "Unsupported certainty beyond the causal language supported by the report."
+    ],
+    "expected_abstention": false,
+    "citation_required": true,
+    "baseline_observed_status": "complete"
+  },
+  {
+    "id": "q6",
+    "question": "Compare NVIDIA's fiscal 2026 revenue growth with its fiscal 2026 operating income growth and net income growth. What does the comparison show?",
+    "type": "multi_metric_comparison",
+    "expected_status": "partial",
+    "expected_answer": "Revenue increased 65% year over year. The supplied evidence supports net-income per diluted share growth of 67%, but does not provide an operating-income growth figure in the retrieved evidence; therefore a full three-way comparison cannot be completed.",
+    "accepted_values": {
+      "revenue_growth": [
+        "65%",
+        "65 percent"
+      ],
+      "diluted_eps_growth": [
+        "67%",
+        "67 percent"
+      ]
+    },
+    "expected_evidence": [
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "23",
+        "keywords": [
+          "revenue",
+          "65%",
+          "diluted",
+          "67%"
+        ],
+        "supports": "Revenue increased 65% year over year and diluted EPS increased 67%."
+      },
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "125",
+        "keywords": [
+          "revenue",
+          "65%",
+          "net income per diluted share",
+          "67%"
+        ],
+        "supports": "Revenue increased 65% and net-income per diluted share increased 67%."
+      }
+    ],
+    "must_include": [],
+    "must_include_any": [],
+    "must_not_claim": [
+      "A full three-way comparison when operating-income growth is not supported by retrieved evidence."
+    ],
+    "expected_abstention": false,
+    "citation_required": true,
+    "note": "The observed answer correctly distinguishes net-income-per-diluted-share growth from operating-income growth.",
+    "baseline_observed_status": "partial"
+  },
+  {
+    "id": "q7",
+    "question": "What factors could cause NVIDIA's revenue growth to become more volatile, and how are those factors connected to its product transition strategy?",
+    "type": "multi_hop_reasoning",
+    "expected_status": "complete",
+    "expected_answer": "The report identifies product-development cycles/time-to-market, competing technologies, business and economic conditions, public-health events, demand-estimation errors, supply constraints, and customer capital limitations as factors that can affect revenue volatility. Product transitions make demand prediction and supply-mix planning harder and can create additional costs, linking these risks to revenue volatility.",
+    "expected_evidence": [
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "103",
+        "keywords": [
+          "product development cycles",
+          "time to market",
+          "competing technologies",
+          "business and economic conditions",
+          "timing and volume of our revenue"
+        ],
+        "supports": "Factors that can cause under/overestimation of demand and affect timing/volume of revenue."
+      },
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "105",
+        "keywords": [
+          "product transitions",
+          "predict demand",
+          "supply mix",
+          "additional costs",
+          "volatility in our revenue"
+        ],
+        "supports": "Product transitions can impair demand prediction, affect supply mix and add costs; incorrect demand estimates can create revenue volatility."
+      },
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "104",
+        "keywords": [
+          "access to capital",
+          "infrastructure projects",
+          "supply constraints",
+          "adoption"
+        ],
+        "supports": "Customer capital constraints and supply constraints can affect adoption and demand volatility."
+      }
+    ],
+    "must_include": [],
+    "must_include_any": [],
+    "must_not_claim": [
+      "A stronger causal relationship than the report supports."
+    ],
+    "expected_abstention": false,
+    "citation_required": true,
+    "baseline_observed_status": "complete"
+  },
+  {
+    "id": "q8",
+    "question": "What are NVIDIA's most significant business risks related to its AI infrastructure growth? Cite the relevant sources and page numbers.",
+    "type": "risk_with_citations",
+    "expected_status": "partial",
+    "expected_answer": "The report's board-risk overview highlights business-model risk including AI, operational risk including supply chain/sourcing, and information-security risk. The supplied evidence does not establish that these are ranked as the three most significant AI-infrastructure risks; it establishes that they are among the major risks overseen by the Board.",
+    "expected_evidence": [
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "46",
+        "keywords": [
+          "business model",
+          "AI",
+          "operational",
+          "supply chain",
+          "sourcing",
+          "information security"
+        ],
+        "supports": "Board oversight of major risks including business model/AI, operational/supply-chain/sourcing, and information security."
+      }
+    ],
+    "must_include": [
+      "page 46"
+    ],
+    "must_include_any": [],
+    "must_not_claim": [
+      "That the report explicitly ranks these as the three most significant risks."
+    ],
+    "expected_abstention": false,
+    "citation_required": true,
+    "citation_requirements": {
+      "required_format": "[SOURCE N]",
+      "require_document": true,
+      "require_page": true,
+      "require_source_support": true
+    },
+    "baseline_observed_status": "partial"
+  },
+  {
+    "id": "q9",
+    "question": "What was NVIDIA's exact market share of the global AI accelerator market in fiscal 2026?",
+    "type": "unsupported_factual",
+    "expected_status": "not_found",
+    "expected_answer": "The supplied documents do not provide the exact market-share percentage requested.",
+    "expected_evidence": [],
+    "must_include": [],
+    "must_include_any": [],
+    "accepted_values": {},
+    "must_not_claim": [
+      "An invented or externally sourced market-share percentage."
+    ],
+    "expected_abstention": true,
+    "citation_required": false,
+    "baseline_observed_status": "not_found"
+  },
+  {
+    "id": "q10",
+    "question": "Based on NVIDIA's annual report, what are the three most important factors that could affect future revenue growth, and what evidence in the report supports each factor?",
+    "type": "evidence_synthesis",
+    "expected_status": "partial",
+    "expected_answer": "The report identifies global economic and political conditions, reliance on third-party manufacturers, and Gaming supply constraints as factors that could materially affect future revenue growth. The report does not rank these factors by relative importance, so the answer should explicitly avoid claiming that the report itself identifies a definitive top three.",
+    "expected_evidence": [
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "19",
+        "keywords": [
+          "global economic",
+          "political conditions",
+          "third parties",
+          "manufacture",
+          "assemble",
+          "package",
+          "test"
+        ],
+        "supports": "Global economic and political conditions; reliance on third parties to manufacture, assemble, package and test products."
+      },
+      {
+        "document": "NVIDIA Corporation Annual review for RAG Testing.pdf",
+        "page": "125",
+        "keywords": [
+          "supply constraints",
+          "headwind",
+          "Gaming",
+          "fiscal 2027"
+        ],
+        "supports": "Supply constraints expected to be a headwind to Gaming in fiscal 2027 and beyond."
+      }
+    ],
+    "must_include": [],
+    "must_include_any": [],
+    "must_not_claim": [
+      "That the report itself ranks these three factors as the most important."
+    ],
+    "expected_abstention": false,
+    "citation_required": true,
+    "citation_requirements": {
+      "required_format": "[SOURCE N]",
+      "require_document": true,
+      "require_page": true,
+      "require_source_support": true
+    },
+    "baseline_observed_status": "partial"
+  }
+]
