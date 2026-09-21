@@ -4,7 +4,78 @@ from app.config import llm
 
 
 # ============================================================
-# Context Evaluation
+# Source-Level Relevance Evaluation
+# ============================================================
+
+def evaluate_source_relevance(
+    query: str,
+    source_text: str,
+) -> bool:
+    """
+    Optional debugging utility.
+
+    This function is intentionally NOT called for every source
+    during the normal production pipeline because doing so creates
+    many unnecessary LLM calls.
+
+    The hybrid retriever + FlashRank already performs retrieval
+    and reranking.
+    """
+
+    if not source_text.strip():
+        return False
+
+    prompt = f"""
+You are evaluating one retrieved passage for a financial RAG system.
+
+User Query:
+{query}
+
+Retrieved Source:
+{source_text}
+
+Determine whether this source contains useful evidence for ANY
+meaningful part of the user's query.
+
+Rules:
+- The source does NOT need to answer the entire question.
+- The source may contain one requested metric, date, percentage,
+  comparison value, risk, explanation, or other relevant fact.
+- Multiple sources may need to be combined.
+- Reject only sources that are clearly unrelated or contain no useful
+  evidence for the query.
+- Do not use outside knowledge.
+- Do not explain your reasoning.
+
+Return exactly:
+YES
+or
+NO
+"""
+
+    response = (
+        llm.complete(prompt)
+        .text
+        .strip()
+        .upper()
+    )
+
+    if response == "YES":
+        return True
+
+    if response == "NO":
+        return False
+
+    print(
+        f"⚠️ Unexpected source relevance response: "
+        f"{response}"
+    )
+
+    return False
+
+
+# ============================================================
+# Context-Level Evidence Coverage Evaluation
 # ============================================================
 
 def evaluate_relevance(
@@ -12,8 +83,8 @@ def evaluate_relevance(
     context: str,
 ) -> str:
     """
-    Determines whether the retrieved context is sufficient
-    to answer the user's question.
+    Evaluates whether the retrieved context satisfies the
+    explicit requirements of the user's question.
 
     Returns:
         COMPLETE
@@ -25,56 +96,69 @@ def evaluate_relevance(
         return "NONE"
 
     prompt = f"""
-You are a strict evidence evaluator for a financial RAG system.
+You are a strict evidence-coverage evaluator for a financial RAG system.
 
 User Query:
 {query}
 
-Retrieved Evidence:
+Retrieved Context:
 {context}
 
-Classify the evidence into exactly one category.
+Determine whether the retrieved context satisfies the user's
+explicit requirements.
+
+Return exactly ONE:
 
 COMPLETE
-- All major requested facts are supported.
-- All important requirements are satisfied.
-- Multiple sources may be combined.
-- Comparisons require evidence for the metrics being compared.
-- A requested ranking must be explicitly supported.
-- A requested future or causal relationship must be explicitly supported.
+- All major requested facts are directly supported.
+- All explicit constraints are satisfied.
+- If the question asks for multiple items, enough evidence exists
+  for all requested items.
+- If the question asks for a comparison, every metric being compared
+  is supported.
+- If the question asks for a ranking such as "most important",
+  "top", "primary", or "most significant", the retrieved evidence
+  must explicitly establish that ranking.
+- If the question asks for a future effect or causal relationship,
+  the evidence must explicitly support that relationship.
 
 PARTIAL
 - Useful evidence exists, but one or more requested facts,
-  metrics, comparisons, rankings, timeframes, or relationships
-  are missing or unsupported.
+  constraints, rankings, comparisons, metrics, timeframes,
+  or relationships are missing or not fully supported.
 
 NONE
-- No useful evidence for the question is present.
+- No useful evidence for the user's question is present.
 
-Rules:
-- Use only the retrieved evidence.
+Important rules:
+- Use ONLY the retrieved context.
 - Do not use outside knowledge.
-- Do not infer missing facts or figures.
-- Do not infer rankings from source order or retrieval score.
-- Do not treat one financial metric as another.
-- Historical evidence must not automatically become a future claim.
+- Do not infer missing facts, figures, rankings, or relationships.
+- Do not treat source order, retrieval score, frequency of mention,
+  or model judgment as evidence of importance.
 - Multiple sources may be combined.
-- Be conservative.
+- A historical observation must not automatically be treated as
+  evidence of a future effect.
+- Be conservative when deciding COMPLETE.
+- Judge the user's actual requirements, not merely topical relevance.
 
 Examples:
-- Revenue growth is provided but operating-income growth is missing
-  → PARTIAL.
-- Diluted EPS growth is provided but net-income growth is missing
-  → PARTIAL.
-- Relevant risks are identified but the requested ranking is absent
-  → PARTIAL.
-- No relevant evidence is present
-  → NONE.
+- If the question asks for net income growth but the context only
+  provides diluted EPS growth, return PARTIAL.
+- If the question asks for three "most important" factors but the
+  context only identifies relevant factors without ranking them,
+  return PARTIAL.
+- If the question asks for a future impact but the context only
+  describes a historical fact, return PARTIAL unless the future
+  relationship is explicitly stated.
+- If only two of three requested facts are supported, return PARTIAL.
 
 Return ONLY:
 COMPLETE
 PARTIAL
 NONE
+
+Answer:
 """
 
     response = (
@@ -92,7 +176,8 @@ NONE
         return response
 
     print(
-        f"⚠️ Unexpected context evaluation response: {response}"
+        f"⚠️ Unexpected context evaluation response: "
+        f"{response}"
     )
 
     return "NONE"
@@ -106,26 +191,30 @@ def rewrite_query(
     query: str,
 ) -> str:
     """
-    Rewrites a failed query for corrective retrieval.
+    Rewrites a query for better vector + BM25 retrieval.
 
-    This function is only called when the initial context
-    is classified as NONE.
+    This is only called during corrective retrieval.
     """
 
     prompt = f"""
 You are a search-query optimizer for a financial RAG system.
 
-Rewrite the following question into a retrieval-focused query.
+Rewrite the user's question into a retrieval-focused query.
+
+Goal:
+Retrieve ALL factual evidence needed to answer the question.
 
 Rules:
 - Preserve the original intent.
-- Preserve all requested metrics.
-- Preserve company, segment, and business-unit names.
-- Preserve fiscal years and dates.
+- Identify every distinct fact requested.
+- Include company, segment, and business-unit names when relevant.
+- Include important financial metrics.
+- Include fiscal years and dates.
+- Expand useful financial terminology and acronyms when appropriate.
+- Preserve ranking terms such as "most important", "top",
+  "primary", or "most significant".
 - Preserve comparison requirements.
-- Preserve ranking terms such as most important, top, or significant.
 - Include both amount and growth concepts when both are requested.
-- Expand useful financial terminology where helpful.
 - Do not invent facts or numbers.
 - Do not answer the question.
 - Return ONLY the rewritten query.
@@ -147,50 +236,6 @@ Rewritten Query:
 
 
 # ============================================================
-# Citation Normalization
-# ============================================================
-
-def normalize_citation_format(
-    answer: str,
-) -> str:
-    """
-    Normalizes common citation variations into:
-
-        [SOURCE 1]
-        [SOURCE 2]
-    """
-
-    if not answer:
-        return answer
-
-    # 【SOURCE 1】 / 【Source 1】
-    answer = re.sub(
-        r"【\s*source\s+(\d+)\s*】",
-        r"[SOURCE \1]",
-        answer,
-        flags=re.IGNORECASE,
-    )
-
-    # [Source 1] / [source 1]
-    answer = re.sub(
-        r"\[\s*source\s+(\d+)\s*\]",
-        r"[SOURCE \1]",
-        answer,
-        flags=re.IGNORECASE,
-    )
-
-    # [ SOURCE 1 ] / [SOURCE 1]
-    answer = re.sub(
-        r"\[\s*SOURCE\s+(\d+)\s*\]",
-        r"[SOURCE \1]",
-        answer,
-        flags=re.IGNORECASE,
-    )
-
-    return answer
-
-
-# ============================================================
 # Answer Generation
 # ============================================================
 
@@ -199,7 +244,10 @@ def generate_answer(
     context: str,
 ) -> str:
     """
-    Generates a grounded answer using only retrieved evidence.
+    Generates a grounded answer from retrieved evidence.
+
+    The answer is intentionally returned as Markdown.
+    Source evidence is displayed separately by the frontend.
     """
 
     if not context.strip():
@@ -211,80 +259,126 @@ def generate_answer(
     prompt = f"""
 You are a financial research assistant.
 
-Answer the user's question using ONLY the retrieved evidence.
+Answer the user's question using ONLY the provided evidence.
 
-Rules:
+GROUNDING AND ACCURACY RULES
 
 1. Do not use outside knowledge.
 
 2. Do not invent facts, figures, percentages, calculations,
-   rankings, or causal relationships.
+   rankings, or relationships.
 
-3. Preserve the exact financial figures, units, and precision
-   from the evidence.
+3. Preserve the exact figures, units, and precision from the evidence.
 
-4. Do not round or normalize financial figures unless the source
-   itself does so.
+4. Do not round, normalize, or change a financial figure unless
+   the source itself does so.
 
 5. Multiple sources may be combined when they provide
    complementary evidence.
 
 6. If only part of the question is supported:
    - answer the supported part;
-   - clearly identify what is missing;
-   - do not pretend the answer is complete.
+   - clearly state what requested information is missing;
+   - do not present the answer as complete.
 
-7. Do not substitute one financial metric for another.
-   Revenue, operating income, net income, diluted EPS,
-   gross margin, and cash flow are distinct metrics.
+7. Never confuse different financial metrics.
+   Revenue, operating income, net income, diluted EPS, gross margin,
+   and cash flow are distinct metrics.
 
-8. If diluted EPS growth is provided but net-income growth is not,
-   explicitly say that net-income growth is not provided.
+8. Never substitute one financial metric for another.
+   For example, diluted EPS growth is NOT net-income growth.
 
-9. Do not infer segment revenue from company-level revenue.
+9. If the question asks for net-income growth but the evidence only
+   provides diluted EPS growth, explicitly say that net-income growth
+   is not provided.
 
-10. Do not infer missing facts or figures.
+10. Do not infer a missing segment revenue from total company revenue.
 
-11. Do not turn a historical observation into a future or causal
-    claim unless the evidence explicitly supports that relationship.
+11. Do not infer missing facts, figures, or relationships.
 
-12. Do not call factors "most important", "top", "primary",
-    or "most significant" unless the evidence explicitly ranks them.
+12. Do not convert a historical observation into a future-risk,
+    future-growth, or causal claim unless the evidence explicitly
+    makes that connection.
 
-13. If the user requests a ranking but the evidence does not
-    establish one, explicitly state that the documents do not
-    provide a definitive ranking.
+13. When synthesizing multiple sources, stay faithful to what they
+    explicitly state. Reasonable synthesis is allowed, but do not
+    make the synthesis stronger than the evidence.
 
-14. Do not make a claim stronger than the source supports.
+RANKING AND PRIORITY RULES
 
-15. Before calling the answer complete, verify that every explicit
-    requirement in the question is supported.
+14. Do not call factors "most important", "top", "primary",
+    or "most significant" unless the retrieved evidence explicitly
+    establishes that ranking.
 
-Citation rules:
+15. Do not infer importance from source order, retrieval score,
+    frequency of mention, or model judgment.
 
-16. Use only these citation formats:
+16. If the user asks for a ranked list but the evidence does not
+    establish a ranking, explicitly state that the documents identify
+    relevant factors but do not provide a definitive ranking.
+
+17. If the user asks for a specific number of factors or items,
+    make sure every requested item is actually supported before
+    presenting the answer as complete.
+
+QUESTION-REQUIREMENT RULES
+
+18. Before claiming that the question is fully answered, verify that
+    every explicit requirement is supported, including:
+    - number of requested items;
+    - ranking or priority;
+    - comparison;
+    - timeframe;
+    - metric;
+    - amount or percentage;
+    - requested supporting evidence;
+    - requested causal or future relationship.
+
+19. If an explicit requirement is unsupported, say so clearly.
+
+20. Do not claim that a source says something stronger than the
+    source actually states.
+
+ANSWER FORMAT RULES
+
+21. Return ONLY the answer to the user's question.
+
+22. Do NOT include source labels such as:
     [SOURCE 1]
     [SOURCE 2]
     [SOURCE 3]
 
-17. Use only source numbers that exist in the retrieved evidence.
+23. Do NOT include citations or references inside the answer.
 
-18. Place citations immediately after the claim they support.
+24. The application displays retrieved source evidence separately
+    below the answer, so keep the answer clean and readable.
 
-19. Do not create citations for unsupported claims.
+25. Markdown formatting is allowed and encouraged when useful.
 
-20. Avoid unnecessary duplicate citations.
+26. You may use:
+    - **bold**
+    - *italics*
+    - bullet lists
+    - numbered lists
+    - headings
 
-Style:
+27. Do not wrap the entire answer in quotation marks.
 
-21. Keep the answer concise but informative.
+STYLE RULES
 
-22. Prefer direct, evidence-faithful wording.
+28. Keep the answer concise but informative.
+
+29. Prefer direct, evidence-faithful wording over broad conclusions.
+
+30. If the evidence is incomplete, do not hide the limitation behind
+    confident wording.
 
 Retrieved Evidence:
+
 {context}
 
 User Query:
+
 {query}
 
 Final Answer:
@@ -302,9 +396,7 @@ Final Answer:
             "available document context."
         )
 
-    return normalize_citation_format(
-        answer
-    )
+    return answer
 
 
 # ============================================================
@@ -326,15 +418,16 @@ class CorrectiveRAGAgent:
     def _build_context(
         self,
         results,
+        include_score=False,
     ):
         """
-        Converts retrieved passages into:
+        Converts retrieved results into:
+            1. LLM context
+            2. Source metadata
 
-        1. LLM context
-        2. API source metadata
-
-        Deduplication is handled by the retriever, so this
-        function only formats the final retrieved results.
+        Retrieval scores are retained in API metadata but omitted
+        from the LLM context by default because they do not help
+        answer the question and consume tokens.
         """
 
         if not results:
@@ -342,6 +435,8 @@ class CorrectiveRAGAgent:
 
         context_parts = []
         sources = []
+
+        seen_text = set()
 
         for result in results:
 
@@ -356,6 +451,23 @@ class CorrectiveRAGAgent:
             if not text:
                 continue
 
+            # ------------------------------------------------
+            # Safety deduplication
+            # ------------------------------------------------
+
+            normalized_text = (
+                " ".join(
+                    text.lower().split()
+                )
+            )
+
+            if normalized_text in seen_text:
+                continue
+
+            seen_text.add(
+                normalized_text
+            )
+
             metadata = result.get(
                 "metadata",
                 {},
@@ -365,7 +477,7 @@ class CorrectiveRAGAgent:
                 "score"
             )
 
-            source_id = len(
+            source_number = len(
                 sources
             ) + 1
 
@@ -382,13 +494,19 @@ class CorrectiveRAGAgent:
             )
 
             source_header = (
-                f"[SOURCE {source_id}]\n"
+                f"[SOURCE {source_number}]\n"
                 f"Document: {file_name}\n"
             )
 
             if page is not None:
                 source_header += (
                     f"Page: {page}\n"
+                )
+
+            if include_score and score is not None:
+                source_header += (
+                    f"Retrieval Score: "
+                    f"{float(score):.6f}\n"
                 )
 
             source_header += (
@@ -401,7 +519,7 @@ class CorrectiveRAGAgent:
 
             sources.append(
                 {
-                    "source_id": source_id,
+                    "source_id": source_number,
                     "document": file_name,
                     "page": page,
                     "score": (
@@ -425,7 +543,7 @@ class CorrectiveRAGAgent:
         return context, sources
 
     # ========================================================
-    # Source Metadata
+    # Build Source Evaluations
     # ========================================================
 
     @staticmethod
@@ -433,10 +551,10 @@ class CorrectiveRAGAgent:
         results,
     ):
         """
-        Records which passages were selected by the
-        hybrid retrieval + FlashRank pipeline.
+        Records the final FlashRank-selected sources.
 
-        This is NOT an individual LLM relevance judgment.
+        These are not LLM-graded individually. Their inclusion is
+        based on hybrid retrieval + FlashRank.
         """
 
         evaluations = []
@@ -449,11 +567,12 @@ class CorrectiveRAGAgent:
             evaluations.append(
                 {
                     "retrieved_rank": position,
+                    "relevant": True,
                     "node_id": result.get(
                         "id"
                     ),
-                    "selection_method": (
-                        "hybrid_retrieval_flashrank"
+                    "evaluation_method": (
+                        "hybrid_retrieval_and_flashrank"
                     ),
                 }
             )
@@ -468,14 +587,6 @@ class CorrectiveRAGAgent:
         self,
         query: str,
     ):
-        """
-        Main Corrective RAG pipeline:
-
-        1. Hybrid retrieval + FlashRank
-        2. Context evaluation
-        3. Corrective retrieval if NONE
-        4. Grounded answer generation
-        """
 
         query = query.strip()
 
@@ -496,7 +607,7 @@ class CorrectiveRAGAgent:
         )
 
         # ====================================================
-        # STEP 1 — Initial Retrieval
+        # STEP 1 — Initial Hybrid Retrieval + FlashRank
         # ====================================================
 
         results = self.retriever.search(
@@ -529,7 +640,7 @@ class CorrectiveRAGAgent:
         corrective_rag_used = False
 
         # ====================================================
-        # STEP 3 — Context Evaluation
+        # STEP 3 — Context-Level Evidence Coverage
         # ====================================================
 
         print(
@@ -554,12 +665,12 @@ class CorrectiveRAGAgent:
             corrective_rag_used = True
 
             print(
-                "⚠️ No useful evidence found."
+                "⚠️ Retrieved context has no useful evidence."
             )
 
-            # ------------------------------------------------
-            # Rewrite query
-            # ------------------------------------------------
+            print(
+                "🔄 Rewriting query..."
+            )
 
             rewritten_query = rewrite_query(
                 query
@@ -571,7 +682,7 @@ class CorrectiveRAGAgent:
             )
 
             # ------------------------------------------------
-            # Corrective retrieval
+            # Second retrieval
             # ------------------------------------------------
 
             results = self.retriever.search(
@@ -608,17 +719,19 @@ class CorrectiveRAGAgent:
                 "🧠 Evaluating corrected context..."
             )
 
-            coverage = evaluate_relevance(
-                query,
-                context,
+            second_coverage = (
+                evaluate_relevance(
+                    query,
+                    context,
+                )
             )
 
             print(
                 f"🧠 Corrected evidence coverage: "
-                f"{coverage}"
+                f"{second_coverage}"
             )
 
-            if coverage == "NONE":
+            if second_coverage == "NONE":
 
                 print(
                     "❌ Corrected retrieval also failed."
@@ -639,6 +752,12 @@ class CorrectiveRAGAgent:
                     ),
                 }
 
+            coverage = second_coverage
+
+            print(
+                "✅ Corrected context contains usable evidence."
+            )
+
         else:
 
             print(
@@ -647,7 +766,7 @@ class CorrectiveRAGAgent:
             )
 
         # ====================================================
-        # STEP 5 — Answer Generation
+        # STEP 5 — Generate Final Answer
         # ====================================================
 
         print(

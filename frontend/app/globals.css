@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   color-scheme: light;
 }
@@ -24,7 +26,8 @@ body {
 }
 
 button,
-textarea {
+textarea,
+input {
   font: inherit;
 }
 
@@ -32,10 +35,66 @@ button {
   -webkit-tap-highlight-color: transparent;
 }
 
-textarea::placeholder {
+textarea::placeholder,
+input::placeholder {
   opacity: 1;
 }
 
 ::selection {
   background: rgba(37, 99, 235, 0.15);
+}
+
+.prose {
+  line-height: 1.7;
+}
+
+.prose p {
+  margin: 0 0 12px;
+}
+
+.prose strong {
+  font-weight: 700;
+}
+
+.prose ul,
+.prose ol {
+  margin: 8px 0 12px 20px;
+  padding-left: 18px;
+}
+
+.prose li {
+  margin: 4px 0;
+}
+
+.prose h1,
+.prose h2,
+.prose h3 {
+  margin: 14px 0 8px;
+  font-weight: 700;
+}
+
+.prose em {
+  font-style: italic;
+}
+
+.prose blockquote {
+  margin: 12px 0;
+  padding-left: 16px;
+  border-left: 3px solid #cbd5e1;
+  color: #64748b;
+}
+
+.prose code {
+  border-radius: 5px;
+  background: #e2e8f0;
+  padding: 2px 5px;
+  font-size: 0.9em;
+}
+
+details > summary::-webkit-details-marker {
+  display: none;
+}
+
+details > summary {
+  user-select: none;
 }

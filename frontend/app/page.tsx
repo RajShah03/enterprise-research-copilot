@@ -1,964 +1,1389 @@
 "use client";
 
 import {
-  FormEvent,
+  ChangeEvent,
+  DragEvent,
   KeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
   useState,
 } from "react";
-
-interface Source {
-  source_id: number;
-  document: string;
-  page: string | number | null;
-  score: number | null;
-  node_id: string | null;
-  text: string;
-}
-
-interface QueryResponse {
-  status: string;
-  query: string;
-  answer: string;
-  sources: Source[];
-  rewritten_query: string | null;
-  corrective_rag: boolean;
-  source_evaluations: unknown[];
-}
+import ReactMarkdown from "react-markdown";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   "http://127.0.0.1:8000";
 
-const EXAMPLE_QUERIES = [
-  "What were NVIDIA's Data Center revenues in fiscal 2026?",
-  "How did NVIDIA's Data Center revenue change year over year?",
-  "What risks did NVIDIA identify in its annual review?",
-];
+const MAX_FILE_SIZE = 25 * 1024 * 1024;
+
+type Role = "user" | "assistant";
+
+type Source = {
+  source_id: number;
+  document?: string | null;
+  page?: string | number | null;
+  score?: number | null;
+  node_id?: string | null;
+  text?: string;
+};
+
+type SourceEvaluation = {
+  retrieved_rank?: number;
+  relevant?: boolean;
+  node_id?: string | null;
+  evaluation_method?: string;
+};
+
+type Message = {
+  id: string;
+  role: Role;
+  content: string;
+  status?: string;
+  sources?: Source[];
+  sourceEvaluations?: SourceEvaluation[];
+  rewrittenQuery?: string | null;
+  correctiveRag?: boolean;
+};
 
 export default function Home() {
-  const [query, setQuery] = useState("");
-  const [result, setResult] =
-    useState<QueryResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [documentId, setDocumentId] =
+    useState<string | null>(null);
 
-  async function submitQuery() {
-    const trimmedQuery = query.trim();
+  const [filename, setFilename] =
+    useState("");
 
-    if (!trimmedQuery || loading) {
+  const [selectedFile, setSelectedFile] =
+    useState<File | null>(null);
+
+  const [messages, setMessages] =
+    useState<Message[]>([]);
+
+  const [query, setQuery] =
+    useState("");
+
+  const [uploading, setUploading] =
+    useState(false);
+
+  const [asking, setAsking] =
+    useState(false);
+
+  const [error, setError] =
+    useState("");
+
+  const [darkMode, setDarkMode] =
+    useState(false);
+
+  const fileInputRef =
+    useRef<HTMLInputElement | null>(null);
+
+  const hasDocument =
+    Boolean(documentId);
+
+  // ==========================================================
+  // Load Saved Theme
+  // ==========================================================
+
+  useEffect(() => {
+    const savedTheme =
+      window.localStorage.getItem(
+        "enterprise-copilot-theme"
+      );
+
+    if (savedTheme === "dark") {
+      setDarkMode(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      "enterprise-copilot-theme",
+      darkMode ? "dark" : "light"
+    );
+  }, [darkMode]);
+
+  const currentDocumentLabel =
+    useMemo(() => {
+      if (!filename) {
+        return "No document selected";
+      }
+
+      return filename;
+    }, [filename]);
+
+  // ==========================================================
+  // Reset
+  // ==========================================================
+
+  function resetForNewDocument() {
+    setDocumentId(null);
+    setFilename("");
+    setSelectedFile(null);
+    setMessages([]);
+    setQuery("");
+    setError("");
+  }
+
+  // ==========================================================
+  // File Selection
+  // ==========================================================
+
+  function handleFileSelection(
+    file: File | null
+  ) {
+    if (!file) {
       return;
     }
 
-    setLoading(true);
     setError("");
-    setResult(null);
-    setCopied(false);
+
+    if (
+      file.type !== "application/pdf" &&
+      !file.name
+        .toLowerCase()
+        .endsWith(".pdf")
+    ) {
+      setError(
+        "Please select a PDF file."
+      );
+      return;
+    }
+
+    if (
+      file.size > MAX_FILE_SIZE
+    ) {
+      setError(
+        "PDF size must be 25 MB or smaller."
+      );
+      return;
+    }
+
+    setSelectedFile(file);
+  }
+
+  function handleInputChange(
+    event: ChangeEvent<HTMLInputElement>
+  ) {
+    const file =
+      event.target.files?.[0] ||
+      null;
+
+    handleFileSelection(file);
+  }
+
+  function handleDrop(
+    event: DragEvent<HTMLDivElement>
+  ) {
+    event.preventDefault();
+
+    const file =
+      event.dataTransfer.files?.[0] ||
+      null;
+
+    handleFileSelection(file);
+  }
+
+  function handleDragOver(
+    event: DragEvent<HTMLDivElement>
+  ) {
+    event.preventDefault();
+  }
+
+  // ==========================================================
+  // Upload PDF
+  // ==========================================================
+
+  async function uploadFile(
+    file: File | null
+  ) {
+    if (!file) {
+      return;
+    }
+
+    setUploading(true);
+    setError("");
+
+    setDocumentId(null);
+    setMessages([]);
+    setQuery("");
 
     try {
-      const response = await fetch(
-        `${API_URL}/query`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            query: trimmedQuery,
-          }),
-        }
+      const formData =
+        new FormData();
+
+      formData.append(
+        "file",
+        file
       );
 
-      let data: QueryResponse | { detail?: string };
+      const response =
+        await fetch(
+          `${API_URL}/upload`,
+          {
+            method: "POST",
+            body: formData,
+          }
+        );
+
+      let body: any = null;
 
       try {
-        data = await response.json();
+        body =
+          await response.json();
       } catch {
-        throw new Error(
-          "The research service returned an invalid response."
-        );
+        body = null;
       }
 
       if (!response.ok) {
         throw new Error(
-          "detail" in data && data.detail
-            ? data.detail
-            : "Unable to process the question."
+          body?.detail ||
+            body?.message ||
+            "Failed to upload and process the PDF."
         );
       }
 
-      setResult(data as QueryResponse);
+      if (!body?.document_id) {
+        throw new Error(
+          "The server did not return a document ID."
+        );
+      }
+
+      setDocumentId(
+        body.document_id
+      );
+
+      setFilename(
+        body.filename ||
+          file.name
+      );
+
+      setSelectedFile(file);
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : "Something went wrong while processing your question."
+          : "Something went wrong while uploading the PDF."
       );
     } finally {
-      setLoading(false);
+      setUploading(false);
     }
   }
 
-  function handleSubmit(
-    event: FormEvent<HTMLFormElement>
-  ) {
-    event.preventDefault();
-    submitQuery();
+  async function handleUploadClick() {
+    if (!selectedFile) {
+      fileInputRef.current?.click();
+      return;
+    }
+
+    await uploadFile(
+      selectedFile
+    );
   }
 
-  function handleKeyDown(
+  function handleChangePdf() {
+    setError("");
+    fileInputRef.current?.click();
+  }
+
+  // ==========================================================
+  // Ask Question
+  // ==========================================================
+
+  async function askQuestion(
+    questionOverride?: string
+  ) {
+    const currentQuery = (
+      questionOverride !== undefined
+        ? questionOverride
+        : query
+    ).trim();
+
+    if (
+      !currentQuery ||
+      !documentId ||
+      asking
+    ) {
+      return;
+    }
+
+    setError("");
+
+    const userMessage: Message = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: currentQuery,
+    };
+
+    setMessages(
+      (previous) => [
+        ...previous,
+        userMessage,
+      ]
+    );
+
+    setQuery("");
+    setAsking(true);
+
+    try {
+      const response =
+        await fetch(
+          `${API_URL}/query`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              document_id:
+                documentId,
+              query: currentQuery,
+            }),
+          }
+        );
+
+      let body: any = null;
+
+      try {
+        body =
+          await response.json();
+      } catch {
+        body = null;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          body?.detail ||
+            body?.message ||
+            "Failed to generate an answer."
+        );
+      }
+
+      const assistantMessage: Message =
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content:
+            body?.answer ||
+            "I could not generate an answer for this question.",
+          status:
+            body?.status,
+          sources:
+            Array.isArray(
+              body?.sources
+            )
+              ? body.sources
+              : [],
+          sourceEvaluations:
+            Array.isArray(
+              body?.source_evaluations
+            )
+              ? body.source_evaluations
+              : [],
+          rewrittenQuery:
+            body?.rewritten_query ||
+            null,
+          correctiveRag:
+            Boolean(
+              body?.corrective_rag
+            ),
+        };
+
+      setMessages(
+        (previous) => [
+          ...previous,
+          assistantMessage,
+        ]
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong while generating the answer."
+      );
+    } finally {
+      setAsking(false);
+    }
+  }
+
+  // ==========================================================
+  // Keyboard
+  // ==========================================================
+
+  function handleComposerKeyDown(
     event: KeyboardEvent<HTMLTextAreaElement>
   ) {
     if (
       event.key === "Enter" &&
-      (event.ctrlKey || event.metaKey)
+      !event.shiftKey
     ) {
       event.preventDefault();
-      submitQuery();
+
+      void askQuestion();
     }
   }
 
-  function newQuestion() {
-    setQuery("");
-    setResult(null);
-    setError("");
-    setCopied(false);
-  }
+  // ==========================================================
+  // Copy Answer
+  // ==========================================================
 
-  async function copyAnswer() {
-    if (!result?.answer) {
-      return;
-    }
-
+  async function copyAnswer(
+    answer: string
+  ) {
     try {
       await navigator.clipboard.writeText(
-        result.answer
+        answer
       );
-
-      setCopied(true);
-
-      window.setTimeout(() => {
-        setCopied(false);
-      }, 2000);
     } catch {
-      setCopied(false);
+      setError(
+        "Could not copy the answer."
+      );
     }
   }
 
-  function scrollToSource(sourceId: number) {
-    document
-      .getElementById(`source-${sourceId}`)
-      ?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-  }
+  // ==========================================================
+  // Status Label
+  // ==========================================================
 
-  function selectExample(example: string) {
-    setQuery(example);
-    setResult(null);
-    setError("");
-    setCopied(false);
-  }
-
-  function renderAnswer(answer: string) {
-    const paragraphs = answer
-      .split(/\n\s*\n/)
-      .map((paragraph) => paragraph.trim())
-      .filter(Boolean);
-
-    return paragraphs.map(
-      (paragraph, paragraphIndex) => {
-        const parts = paragraph.split(
-          /(\[SOURCE \d+\])/g
-        );
-
-        return (
-          <p
-            key={paragraphIndex}
-            className={
-              paragraphIndex > 0
-                ? "mt-5"
-                : ""
-            }
-          >
-            {parts.map((part, index) => {
-              const match = part.match(
-                /^\[SOURCE (\d+)\]$/
-              );
-
-              if (!match) {
-                return (
-                  <span key={index}>
-                    {part}
-                  </span>
-                );
-              }
-
-              const sourceId = Number(
-                match[1]
-              );
-
-              return (
-                <button
-                  key={index}
-                  type="button"
-                  onClick={() =>
-                    scrollToSource(sourceId)
-                  }
-                  aria-label={`View source ${sourceId}`}
-                  className="mx-1 inline-flex translate-y-[-1px] items-center rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-blue-700 transition hover:border-blue-300 hover:bg-blue-100"
-                >
-                  {sourceId}
-                </button>
-              );
-            })}
-          </p>
-        );
-      }
-    );
-  }
-
-  function statusMeta() {
-    if (!result) {
+  function getStatusLabel(
+    status?: string
+  ) {
+    if (!status) {
       return null;
     }
 
-    if (result.status === "complete") {
-      return {
-        label: "Well supported",
-        className:
-          "border-emerald-200 bg-emerald-50 text-emerald-700",
-        dot:
-          "bg-emerald-500",
-      };
+    if (
+      status === "complete"
+    ) {
+      return "Complete evidence";
     }
 
-    if (result.status === "partial") {
-      return {
-        label: "Partially supported",
-        className:
-          "border-amber-200 bg-amber-50 text-amber-700",
-        dot:
-          "bg-amber-500",
-      };
+    if (
+      status === "partial"
+    ) {
+      return "Partial evidence";
     }
 
-    return {
-      label: "Limited evidence",
-      className:
-        "border-slate-200 bg-slate-50 text-slate-600",
-      dot:
-        "bg-slate-400",
-    };
+    if (
+      status === "not_found"
+    ) {
+      return "Insufficient evidence";
+    }
+
+    return status;
   }
 
-  const status = statusMeta();
+  // ==========================================================
+  // Main UI
+  // ==========================================================
 
   return (
-    <main className="min-h-screen bg-[#f7f8fa] text-slate-900">
+    <div
+      className={
+        darkMode
+          ? "dark"
+          : ""
+      }
+    >
+      <main className="min-h-screen bg-[#f7f8fa] text-slate-900 transition-colors duration-200 dark:bg-slate-950 dark:text-slate-100">
 
-      {/* ====================================================
-          Header
-          ==================================================== */}
+        <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
 
-      <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 sm:px-8">
+          {/* ================================================== */}
+          {/* Header                                             */}
+          {/* ================================================== */}
 
-          <button
-            type="button"
-            onClick={newQuestion}
-            className="flex items-center gap-3"
-          >
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-[11px] font-bold tracking-tight text-white">
-              ER
-            </div>
+          <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 
-            <div className="text-left">
-              <div className="text-sm font-semibold tracking-tight text-slate-900">
-                Enterprise Research Copilot
-              </div>
+            <div>
+              <div className="mb-1 flex items-center gap-2">
 
-              <div className="hidden text-[11px] text-slate-400 sm:block">
-                Document-grounded research assistant
-              </div>
-            </div>
-          </button>
-
-          <div className="flex items-center gap-3">
-            <div className="hidden items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-medium text-emerald-700 sm:flex">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              System ready
-            </div>
-
-            <button
-              type="button"
-              onClick={newQuestion}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
-            >
-              New question
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <div className="mx-auto max-w-7xl px-5 pb-20 sm:px-8">
-
-        {/* ====================================================
-            Hero
-            ==================================================== */}
-
-        {!result && !loading && !error && (
-          <section className="mx-auto max-w-3xl pt-16 text-center sm:pt-20">
-
-            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-500 shadow-sm">
-              <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
-              AI-powered document research
-            </div>
-
-            <h1 className="text-4xl font-semibold tracking-[-0.035em] text-slate-950 sm:text-5xl">
-              Research with evidence,
-              <span className="block text-blue-600">
-                not just answers.
-              </span>
-            </h1>
-
-            <p className="mx-auto mt-5 max-w-2xl text-sm leading-6 text-slate-500 sm:text-base">
-              Ask questions about your indexed documents.
-              Receive grounded answers with supporting
-              evidence and page references.
-            </p>
-          </section>
-        )}
-
-        {/* ====================================================
-            Search
-            ==================================================== */}
-
-        <section className="mx-auto max-w-3xl pt-10 sm:pt-12">
-
-          <form onSubmit={handleSubmit}>
-            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_32px_rgba(15,23,42,0.06)] transition focus-within:border-blue-300 focus-within:ring-4 focus-within:ring-blue-100">
-
-              <textarea
-                value={query}
-                onChange={(event) =>
-                  setQuery(event.target.value)
-                }
-                onKeyDown={handleKeyDown}
-                disabled={loading}
-                rows={4}
-                placeholder="Ask a question about your research documents..."
-                className="w-full resize-none bg-transparent px-5 py-5 text-sm leading-6 text-slate-900 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
-              />
-
-              <div className="flex items-center justify-between border-t border-slate-100 px-4 py-3">
-
-                <div className="hidden items-center gap-2 text-[11px] text-slate-400 sm:flex">
-                  <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-medium">
-                    Ctrl
-                  </span>
-
-                  <span>+</span>
-
-                  <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-medium">
-                    Enter
-                  </span>
-
-                  <span>to ask</span>
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 text-sm font-bold text-white dark:bg-white dark:text-slate-900">
+                  AI
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={
-                    loading || !query.trim()
-                  }
-                  className="ml-auto inline-flex items-center gap-2 rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {loading ? (
-                    <>
-                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                      Researching
-                    </>
-                  ) : (
-                    <>
-                      Ask Copilot
-                      <ArrowUpIcon />
-                    </>
-                  )}
-                </button>
+                <span className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                  Research Copilot
+                </span>
+
               </div>
+
+              <h1 className="text-2xl font-semibold tracking-tight text-slate-950 dark:text-white sm:text-3xl">
+                Chat with any PDF
+              </h1>
+
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-400">
+                Upload a document and ask questions using
+                hybrid retrieval, reranking, corrective RAG,
+                and grounded source evidence.
+              </p>
             </div>
-          </form>
 
-          {/* Example queries */}
-          {!result && !loading && !error && (
-            <div className="mt-5">
-              <div className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-                Example questions
-              </div>
+            <div className="flex items-center gap-2">
 
-              <div className="flex flex-wrap gap-2">
-                {EXAMPLE_QUERIES.map(
-                  (example) => (
+              {/* Theme Toggle */}
+
+              <button
+                type="button"
+                onClick={() =>
+                  setDarkMode(
+                    (previous) =>
+                      !previous
+                  )
+                }
+                aria-label={
+                  darkMode
+                    ? "Switch to light mode"
+                    : "Switch to dark mode"
+                }
+                title={
+                  darkMode
+                    ? "Light mode"
+                    : "Dark mode"
+                }
+                className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-lg text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                {darkMode
+                  ? "☀"
+                  : "☾"}
+              </button>
+
+              {hasDocument && (
+                <button
+                  type="button"
+                  onClick={
+                    resetForNewDocument
+                  }
+                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  New PDF
+                </button>
+              )}
+
+            </div>
+          </header>
+
+          {/* ================================================== */}
+          {/* Upload Screen                                      */}
+          {/* ================================================== */}
+
+          {!hasDocument ? (
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-8">
+
+              <div className="mx-auto max-w-3xl">
+
+                <div
+                  onDrop={
+                    handleDrop
+                  }
+                  onDragOver={
+                    handleDragOver
+                  }
+                  className="rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-5 py-12 text-center transition hover:border-slate-400 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:hover:border-slate-600 dark:hover:bg-slate-900 sm:px-10"
+                >
+
+                  <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-white text-2xl shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
+                    PDF
+                  </div>
+
+                  <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
+                    Upload a PDF
+                  </h2>
+
+                  <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-600 dark:text-slate-400">
+                    Drop your PDF here or choose a file
+                    from your computer. The document will be
+                    processed and indexed before you start
+                    chatting.
+                  </p>
+
+                  <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
+
                     <button
-                      key={example}
                       type="button"
                       onClick={() =>
-                        selectExample(example)
+                        fileInputRef.current?.click()
                       }
-                      className="rounded-full border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                      className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
                     >
-                      {example}
+                      Choose PDF
                     </button>
-                  )
-                )}
-              </div>
-            </div>
-          )}
-        </section>
 
-        {/* ====================================================
-            Loading
-            ==================================================== */}
+                    {selectedFile && (
+                      <button
+                        type="button"
+                        onClick={
+                          handleUploadClick
+                        }
+                        disabled={
+                          uploading
+                        }
+                        className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                      >
+                        {uploading
+                          ? "Processing PDF..."
+                          : "Upload & Process"}
+                      </button>
+                    )}
 
-        {loading && (
-          <section className="mx-auto mt-8 max-w-3xl rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center gap-3">
-              <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600" />
+                  </div>
 
-              <div>
-                <p className="text-sm font-semibold text-slate-800">
-                  Researching your question
-                </p>
+                  <input
+                    ref={
+                      fileInputRef
+                    }
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    onChange={
+                      handleInputChange
+                    }
+                    className="hidden"
+                  />
 
-                <p className="mt-0.5 text-xs text-slate-400">
-                  Retrieving and evaluating relevant evidence...
-                </p>
-              </div>
-            </div>
-          </section>
-        )}
+                  {selectedFile && (
+                    <div className="mx-auto mt-6 max-w-lg rounded-xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm dark:border-slate-700 dark:bg-slate-900">
 
-        {/* ====================================================
-            Error
-            ==================================================== */}
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        Selected document
+                      </div>
 
-        {error && !loading && (
-          <section className="mx-auto mt-8 max-w-3xl rounded-2xl border border-red-200 bg-red-50 p-5">
-            <div className="flex gap-3">
-              <div className="mt-0.5 text-red-500">
-                <AlertIcon />
-              </div>
+                      <div className="mt-1 truncate text-sm font-medium text-slate-900 dark:text-white">
+                        {
+                          selectedFile.name
+                        }
+                      </div>
 
-              <div>
-                <p className="text-sm font-semibold text-red-700">
-                  We couldn't process that question
-                </p>
+                      <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        {(
+                          selectedFile.size /
+                          1024 /
+                          1024
+                        ).toFixed(2)}{" "}
+                        MB
+                      </div>
 
-                <p className="mt-1 text-sm leading-5 text-red-600">
-                  {error}
-                </p>
-              </div>
-            </div>
-          </section>
-        )}
+                    </div>
+                  )}
 
-        {/* ====================================================
-            Results
-            ==================================================== */}
+                  <p className="mt-5 text-xs text-slate-500 dark:text-slate-500">
+                    PDF only · Maximum size 25 MB
+                  </p>
 
-        {result && !loading && !error && (
-          <section className="mt-10">
+                </div>
 
-            {/* Question */}
-            <div className="mx-auto max-w-3xl">
-              <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-                Your question
-              </div>
-
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <h2 className="text-lg font-medium leading-7 text-slate-900">
-                  {result.query}
-                </h2>
-
-                {status && (
-                  <div
-                    className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold ${status.className}`}
-                  >
-                    <span
-                      className={`h-1.5 w-1.5 rounded-full ${status.dot}`}
-                    />
-                    {status.label}
+                {error && (
+                  <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+                    {error}
                   </div>
                 )}
-              </div>
-            </div>
 
-            {/* Answer + Sources */}
-            <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
+                <div className="mt-8 grid gap-4 sm:grid-cols-3">
 
-              {/* ==================================================
-                  Answer
-                  ================================================== */}
-
-              <article className="min-w-0 rounded-2xl border border-slate-200 bg-white shadow-sm">
-
-                <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-                      <SparkIcon />
+                  <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="text-sm font-semibold text-slate-900 dark:text-white">
+                      Hybrid retrieval
                     </div>
 
-                    <div>
-                      <div className="text-sm font-semibold text-slate-900">
-                        Answer
-                      </div>
+                    <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                      Dense vector search combined with BM25
+                      lexical retrieval.
+                    </p>
+                  </div>
 
-                      <div className="text-[11px] text-slate-400">
-                        Grounded in retrieved evidence
-                      </div>
+                  <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="text-sm font-semibold text-slate-900 dark:text-white">
+                      Corrective RAG
+                    </div>
+
+                    <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                      Evidence coverage is checked before
+                      final answer generation.
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="text-sm font-semibold text-slate-900 dark:text-white">
+                      Source evidence
+                    </div>
+
+                    <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                      Retrieved passages are available
+                      below each answer.
+                    </p>
+                  </div>
+
+                </div>
+
+              </div>
+            </section>
+
+          ) : (
+
+            /* ================================================== */
+            /* Chat Screen                                        */
+            /* ================================================== */
+
+            <section className="flex min-h-[calc(100vh-190px)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+
+              {/* Document Bar */}
+
+              <div className="border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900 sm:px-6">
+
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                      Current document
+                    </div>
+
+                    <div className="mt-1 truncate text-sm font-semibold text-slate-900 dark:text-white">
+                      {
+                        currentDocumentLabel
+                      }
                     </div>
                   </div>
 
                   <button
                     type="button"
-                    onClick={copyAnswer}
-                    className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+                    onClick={
+                      handleChangePdf
+                    }
+                    disabled={
+                      uploading
+                    }
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                   >
-                    {copied ? (
-                      <>
-                        <CheckIcon />
-                        Copied
-                      </>
-                    ) : (
-                      <>
-                        <CopyIcon />
-                        Copy
-                      </>
-                    )}
+                    Change PDF
                   </button>
-                </div>
 
-                <div className="px-6 py-7 sm:px-8 sm:py-8">
-                  <div className="text-[15px] leading-7 text-slate-700">
-                    {renderAnswer(result.answer)}
+                  <input
+                    ref={
+                      fileInputRef
+                    }
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    onChange={
+                      async (
+                        event
+                      ) => {
+                        const file =
+                          event.target.files?.[0] ||
+                          null;
+
+                        if (file) {
+                          handleFileSelection(
+                            file
+                          );
+
+                          await uploadFile(
+                            file
+                          );
+                        }
+
+                        event.target.value =
+                          "";
+                      }
+                    }
+                    className="hidden"
+                  />
+
+                </div>
+              </div>
+
+              {/* Messages */}
+
+              <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+
+                {messages.length === 0 ? (
+
+                  <div className="mx-auto max-w-3xl py-16 text-center">
+
+                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-sm font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                      Q&A
+                    </div>
+
+                    <h2 className="mt-5 text-xl font-semibold text-slate-900 dark:text-white">
+                      Ask questions about your document
+                    </h2>
+
+                    <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-400">
+                      Ask for facts, comparisons, trends,
+                      explanations, figures, or other
+                      information contained in the uploaded PDF.
+                    </p>
+
+                    <div className="mt-8 grid gap-3 sm:grid-cols-2">
+
+                      {[
+                        "What are the key financial highlights?",
+                        "What factors affected revenue or margins?",
+                        "What were the major risks mentioned?",
+                        "Summarize the most important findings.",
+                      ].map(
+                        (example) => (
+                          <button
+                            key={
+                              example
+                            }
+                            type="button"
+                            onClick={() =>
+                              void askQuestion(
+                                example
+                              )
+                            }
+                            className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-sm text-slate-700 transition hover:border-slate-300 hover:bg-white dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-900"
+                          >
+                            {
+                              example
+                            }
+                          </button>
+                        )
+                      )}
+
+                    </div>
                   </div>
-                </div>
-              </article>
 
-              {/* ==================================================
-                  Sources
-                  ================================================== */}
+                ) : (
 
-              <aside>
-                <div className="mb-4">
-                  <h3 className="text-sm font-semibold text-slate-900">
-                    Sources
-                  </h3>
+                  <div className="mx-auto max-w-4xl space-y-6">
 
-                  <p className="mt-1 text-xs leading-5 text-slate-400">
-                    Evidence retrieved for this answer.
-                  </p>
-                </div>
+                    {messages.map(
+                      (message) => (
+                        <article
+                          key={
+                            message.id
+                          }
+                        >
 
-                <div className="space-y-3">
-                  {result.sources.map(
-                    (source) => (
-                      <article
-                        id={`source-${source.source_id}`}
-                        key={`${source.source_id}-${source.node_id}`}
-                        className="scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300"
-                      >
-                        <div className="flex items-start gap-3">
-                          <span className="flex h-6 min-w-6 items-center justify-center rounded-md bg-blue-50 px-1.5 text-[10px] font-bold text-blue-700">
-                            {source.source_id}
-                          </span>
+                          {/* User */}
 
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-[11px] font-medium text-slate-400">
-                                Source
-                              </span>
+                          {message.role ===
+                          "user" ? (
 
-                              {source.page !==
-                                null && (
-                                <>
-                                  <span className="text-slate-300">
-                                    ·
-                                  </span>
+                            <div className="flex justify-end">
 
-                                  <span className="text-[11px] font-medium text-slate-400">
-                                    Page{" "}
-                                    {source.page}
-                                  </span>
-                                </>
+                              <div className="max-w-[85%] rounded-2xl rounded-br-md bg-slate-900 px-4 py-3 text-sm leading-6 text-white dark:bg-white dark:text-slate-900">
+                                {
+                                  message.content
+                                }
+                              </div>
+
+                            </div>
+
+                          ) : (
+
+                            /* Assistant */
+
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950 sm:p-5">
+
+                              {/* Assistant Header */}
+
+                              <div className="flex flex-wrap items-center justify-between gap-3">
+
+                                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                                  Assistant
+                                </div>
+
+                                <div className="flex items-center gap-2">
+
+                                  {getStatusLabel(
+                                    message.status
+                                  ) && (
+                                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                                      {
+                                        getStatusLabel(
+                                          message.status
+                                        )
+                                      }
+                                    </span>
+                                  )}
+
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void copyAnswer(
+                                        message.content
+                                      )
+                                    }
+                                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                                  >
+                                    Copy
+                                  </button>
+
+                                </div>
+                              </div>
+
+                              {/* Markdown Answer */}
+
+                              <div className="prose mt-4 max-w-none text-sm leading-7 text-slate-700 dark:text-slate-300">
+
+                                <ReactMarkdown
+                                  components={{
+                                    p: ({
+                                      children,
+                                    }) => (
+                                      <p className="mb-3 last:mb-0">
+                                        {
+                                          children
+                                        }
+                                      </p>
+                                    ),
+
+                                    ul: ({
+                                      children,
+                                    }) => (
+                                      <ul className="mb-3 ml-5 list-disc space-y-1">
+                                        {
+                                          children
+                                        }
+                                      </ul>
+                                    ),
+
+                                    ol: ({
+                                      children,
+                                    }) => (
+                                      <ol className="mb-3 ml-5 list-decimal space-y-1">
+                                        {
+                                          children
+                                        }
+                                      </ol>
+                                    ),
+
+                                    li: ({
+                                      children,
+                                    }) => (
+                                      <li className="leading-7">
+                                        {
+                                          children
+                                        }
+                                      </li>
+                                    ),
+
+                                    strong: ({
+                                      children,
+                                    }) => (
+                                      <strong className="font-semibold text-slate-900 dark:text-white">
+                                        {
+                                          children
+                                        }
+                                      </strong>
+                                    ),
+
+                                    em: ({
+                                      children,
+                                    }) => (
+                                      <em className="italic">
+                                        {
+                                          children
+                                        }
+                                      </em>
+                                    ),
+
+                                    h1: ({
+                                      children,
+                                    }) => (
+                                      <h1 className="mb-2 mt-4 text-xl font-semibold text-slate-900 first:mt-0 dark:text-white">
+                                        {
+                                          children
+                                        }
+                                      </h1>
+                                    ),
+
+                                    h2: ({
+                                      children,
+                                    }) => (
+                                      <h2 className="mb-2 mt-4 text-lg font-semibold text-slate-900 first:mt-0 dark:text-white">
+                                        {
+                                          children
+                                        }
+                                      </h2>
+                                    ),
+
+                                    h3: ({
+                                      children,
+                                    }) => (
+                                      <h3 className="mb-2 mt-4 text-base font-semibold text-slate-900 first:mt-0 dark:text-white">
+                                        {
+                                          children
+                                        }
+                                      </h3>
+                                    ),
+
+                                    blockquote: ({
+                                      children,
+                                    }) => (
+                                      <blockquote className="my-3 border-l-4 border-slate-300 pl-4 italic text-slate-600 dark:border-slate-700 dark:text-slate-400">
+                                        {
+                                          children
+                                        }
+                                      </blockquote>
+                                    ),
+
+                                    code: ({
+                                      children,
+                                    }) => (
+                                      <code className="rounded bg-slate-200 px-1.5 py-0.5 text-[0.9em] text-slate-800 dark:bg-slate-800 dark:text-slate-200">
+                                        {
+                                          children
+                                        }
+                                      </code>
+                                    ),
+                                  }}
+                                >
+                                  {
+                                    message.content
+                                  }
+                                </ReactMarkdown>
+
+                              </div>
+
+                              {/* Corrective RAG */}
+
+                              {message.correctiveRag && (
+                                <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/60 dark:bg-amber-950/30">
+
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                                    Corrective retrieval used
+                                  </div>
+
+                                  {message.rewrittenQuery && (
+                                    <div className="mt-1 text-sm text-amber-900 dark:text-amber-300">
+                                      <span className="font-medium">
+                                        Rewritten query:
+                                      </span>{" "}
+                                      {
+                                        message.rewrittenQuery
+                                      }
+                                    </div>
+                                  )}
+
+                                </div>
                               )}
-                            </div>
 
-                            <div className="mt-1.5 break-words text-xs font-semibold leading-5 text-slate-800">
-                              {source.document}
-                            </div>
-                          </div>
-                        </div>
+                              {/* Collapsed Sources */}
 
-                        <div className="mt-3 border-t border-slate-100 pt-3">
-                          <p className="line-clamp-7 text-xs leading-5 text-slate-500">
-                            {source.text}
-                          </p>
-                        </div>
-                      </article>
+                              {message.sources &&
+                                message.sources.length >
+                                  0 && (
+
+                                  <details className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+
+                                    <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800">
+
+                                      <div className="flex items-center justify-between gap-3">
+
+                                        <span>
+                                          Sources ·{" "}
+                                          {
+                                            message
+                                              .sources
+                                              .length
+                                          }
+                                        </span>
+
+                                        <span className="text-xs font-medium text-slate-400">
+                                          Click to expand
+                                        </span>
+
+                                      </div>
+
+                                    </summary>
+
+                                    <div className="border-t border-slate-200 p-4 dark:border-slate-800">
+
+                                      <div className="space-y-3">
+
+                                        {message.sources.map(
+                                          (source) => (
+
+                                            <div
+                                              key={`${message.id}-${source.source_id}`}
+                                              className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950"
+                                            >
+
+                                              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+
+                                                <div>
+                                                  <div className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                    Source{" "}
+                                                    {
+                                                      source.source_id
+                                                    }
+                                                  </div>
+
+                                                  <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                    {
+                                                      source.document ||
+                                                      "Document"
+                                                    }
+
+                                                    {source.page !==
+                                                      null &&
+                                                      source.page !==
+                                                        undefined && (
+                                                        <>
+                                                          {" "}
+                                                          · Page{" "}
+                                                          {
+                                                            source.page
+                                                          }
+                                                        </>
+                                                      )}
+                                                  </div>
+                                                </div>
+
+                                                {source.score !==
+                                                  null &&
+                                                  source.score !==
+                                                    undefined && (
+                                                    <span className="text-[11px] font-medium text-slate-400">
+                                                      Score{" "}
+                                                      {Number(
+                                                        source.score
+                                                      ).toFixed(
+                                                        4
+                                                      )}
+                                                    </span>
+                                                  )}
+
+                                              </div>
+
+                                              <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-600 dark:text-slate-400">
+                                                {
+                                                  source.text
+                                                }
+                                              </p>
+
+                                            </div>
+
+                                          )
+                                        )}
+
+                                      </div>
+
+                                    </div>
+                                  </details>
+                                )}
+
+                              {/* Collapsed Retrieval Details */}
+
+                              {message.sourceEvaluations &&
+                                message.sourceEvaluations.length >
+                                  0 && (
+
+                                  <details className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+
+                                    <summary className="cursor-pointer list-none px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 transition hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800">
+
+                                      <div className="flex items-center justify-between gap-3">
+
+                                        <span>
+                                          Retrieval details
+                                        </span>
+
+                                        <span className="text-xs font-medium normal-case tracking-normal text-slate-400">
+                                          Advanced
+                                        </span>
+
+                                      </div>
+
+                                    </summary>
+
+                                    <div className="border-t border-slate-200 p-4 dark:border-slate-800">
+
+                                      <div className="overflow-x-auto">
+
+                                        <table className="min-w-full text-left text-xs">
+
+                                          <thead>
+                                            <tr className="border-b border-slate-200 dark:border-slate-800">
+
+                                              <th className="px-2 py-2 font-semibold text-slate-500 dark:text-slate-400">
+                                                Rank
+                                              </th>
+
+                                              <th className="px-2 py-2 font-semibold text-slate-500 dark:text-slate-400">
+                                                Relevant
+                                              </th>
+
+                                              <th className="px-2 py-2 font-semibold text-slate-500 dark:text-slate-400">
+                                                Method
+                                              </th>
+
+                                              <th className="px-2 py-2 font-semibold text-slate-500 dark:text-slate-400">
+                                                Node
+                                              </th>
+
+                                            </tr>
+                                          </thead>
+
+                                          <tbody>
+
+                                            {message.sourceEvaluations.map(
+                                              (
+                                                evaluation,
+                                                index
+                                              ) => (
+
+                                                <tr
+                                                  key={`${message.id}-eval-${index}`}
+                                                  className="border-b border-slate-100 last:border-0 dark:border-slate-800"
+                                                >
+
+                                                  <td className="px-2 py-2 text-slate-700 dark:text-slate-300">
+                                                    {
+                                                      evaluation.retrieved_rank ??
+                                                      "-"
+                                                    }
+                                                  </td>
+
+                                                  <td className="px-2 py-2 text-slate-700 dark:text-slate-300">
+                                                    {
+                                                      evaluation.relevant
+                                                        ? "Yes"
+                                                        : "No"
+                                                    }
+                                                  </td>
+
+                                                  <td className="px-2 py-2 text-slate-700 dark:text-slate-300">
+                                                    {
+                                                      evaluation.evaluation_method ||
+                                                      "-"
+                                                    }
+                                                  </td>
+
+                                                  <td className="max-w-[240px] truncate px-2 py-2 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                                                    {
+                                                      evaluation.node_id ||
+                                                      "-"
+                                                    }
+                                                  </td>
+
+                                                </tr>
+
+                                              )
+                                            )}
+
+                                          </tbody>
+
+                                        </table>
+
+                                      </div>
+
+                                    </div>
+
+                                  </details>
+                                )}
+
+                            </div>
+                          )}
+                        </article>
                     )
                   )}
-                </div>
-              </aside>
-            </div>
 
-            {/* ==================================================
-                Technical Details
-                ================================================== */}
+                  {/* Loading */}
 
-            <div className="mt-8">
-              <details className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+                  {asking && (
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
 
-                <summary className="cursor-pointer list-none px-5 py-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <div className="text-sm font-semibold text-slate-800">
-                        Technical details
+                      <div className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-400">
+
+                        <div className="flex gap-1">
+
+                          <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400" />
+
+                          <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400 [animation-delay:120ms]" />
+
+                          <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400 [animation-delay:240ms]" />
+
+                        </div>
+
+                        Searching the document and generating a grounded answer...
+
                       </div>
 
-                      <div className="mt-1 text-xs text-slate-400">
-                        How this answer was produced.
-                      </div>
-                    </div>
-
-                    <ChevronIcon />
-                  </div>
-                </summary>
-
-                <div className="border-t border-slate-100 px-5 py-5">
-
-                  <div className="grid gap-5 sm:grid-cols-4">
-
-                    <TechnicalItem
-                      label="Retrieval"
-                      value="Vector + BM25"
-                    />
-
-                    <TechnicalItem
-                      label="Reranking"
-                      value="FlashRank"
-                    />
-
-                    <TechnicalItem
-                      label="Evidence"
-                      value={
-                        result.status
-                          .toUpperCase()
-                      }
-                    />
-
-                    <TechnicalItem
-                      label="Corrective RAG"
-                      value={
-                        result.corrective_rag
-                          ? "Triggered"
-                          : "Not triggered"
-                      }
-                    />
-                  </div>
-
-                  {result.rewritten_query && (
-                    <div className="mt-5 border-t border-slate-100 pt-5">
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-                        Corrective query
-                      </div>
-
-                      <div className="mt-2 rounded-xl bg-slate-50 p-3 text-sm leading-6 text-slate-600">
-                        {result.rewritten_query}
-                      </div>
                     </div>
                   )}
+
+                  {/* Error */}
+
+                  {error && (
+                    <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+                      {
+                        error
+                      }
+                    </div>
+                  )}
+
                 </div>
-              </details>
+              )}
             </div>
+
+            {/* Composer */}
+
+            <div className="border-t border-slate-200 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-900 sm:px-6">
+
+              <div className="mx-auto max-w-4xl">
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-2 shadow-sm dark:border-slate-700 dark:bg-slate-950">
+
+                  <textarea
+                    value={query}
+                    onChange={(
+                      event
+                    ) =>
+                      setQuery(
+                        event.target.value
+                      )
+                    }
+                    onKeyDown={
+                      handleComposerKeyDown
+                    }
+                    rows={3}
+                    placeholder="Ask a question about the uploaded PDF..."
+                    disabled={
+                      asking ||
+                      uploading
+                    }
+                    className="w-full resize-none border-0 bg-transparent px-3 py-2 text-sm leading-6 text-slate-900 outline-none placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-500"
+                  />
+
+                  <div className="flex items-center justify-between gap-3 px-2 pb-1 pt-2">
+
+                    <div className="text-xs text-slate-400">
+                      Enter to send · Shift+Enter for a new line
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void askQuestion()
+                      }
+                      disabled={
+                        asking ||
+                        !query.trim() ||
+                        !documentId
+                      }
+                      className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
+                    >
+                      {asking
+                        ? "Thinking..."
+                        : "Ask"}
+                    </button>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+            </div>
+
           </section>
         )}
-
-        {/* ====================================================
-            Empty-state features
-            ==================================================== */}
-
-        {!result && !loading && !error && (
-          <section className="mx-auto mt-16 max-w-3xl">
-            <div className="grid gap-4 sm:grid-cols-3">
-
-              <FeatureCard
-                icon={<DocumentIcon />}
-                title="Grounded answers"
-                text="Responses are generated from retrieved document evidence."
-              />
-
-              <FeatureCard
-                icon={<SourceIcon />}
-                title="Traceable evidence"
-                text="See the document passages and page references behind an answer."
-              />
-
-              <FeatureCard
-                icon={<ShieldIcon />}
-                title="Evidence aware"
-                text="The system can identify when retrieved evidence is insufficient."
-              />
-            </div>
-          </section>
-        )}
-
-        {/* ====================================================
-            Footer
-            ==================================================== */}
-
-        <footer className="mt-16 border-t border-slate-200 pt-6 text-center text-[11px] text-slate-400">
-          Enterprise Research Copilot · FastAPI · Next.js · Hybrid Retrieval · Corrective RAG
-        </footer>
       </div>
     </main>
-  );
-}
-
-
-/* ============================================================
-   Reusable Components
-   ============================================================ */
-
-function TechnicalItem({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div>
-      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-        {label}
-      </div>
-
-      <div className="mt-1.5 text-sm text-slate-700">
-        {value}
-      </div>
     </div>
-  );
-}
-
-function FeatureCard({
-  icon,
-  title,
-  text,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  text: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="mb-4 flex h-9 w-9 items-center justify-center rounded-lg bg-slate-50 text-slate-600">
-        {icon}
-      </div>
-
-      <h3 className="text-sm font-semibold text-slate-800">
-        {title}
-      </h3>
-
-      <p className="mt-2 text-xs leading-5 text-slate-500">
-        {text}
-      </p>
-    </div>
-  );
-}
-
-
-/* ============================================================
-   Icons
-   ============================================================ */
-
-function ArrowUpIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 19V5" />
-      <path d="m6 11 6-6 6 6" />
-    </svg>
-  );
-}
-
-function SparkIcon() {
-  return (
-    <svg
-      width="15"
-      height="15"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="m12 3-1.3 5.2L6 10l4.7 1.8L12 17l1.3-5.2L18 10l-4.7-1.8L12 3Z" />
-      <path d="m19 16-.6 2.4L16 19l2.4.6L19 22l.6-2.4L22 19l-2.4-.6L19 16Z" />
-    </svg>
-  );
-}
-
-function CopyIcon() {
-  return (
-    <svg
-      width="13"
-      height="13"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect
-        x="9"
-        y="9"
-        width="11"
-        height="11"
-        rx="2"
-      />
-
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg
-      width="13"
-      height="13"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="m5 12 4 4L19 6" />
-    </svg>
-  );
-}
-
-function AlertIcon() {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 9v4" />
-      <path d="M12 17h.01" />
-      <path d="M10.3 3.7 2.8 17a2 2 0 0 0 1.7 3h15a2 2 0 0 0 1.7-3l-7.5-13.3a2 2 0 0 0-3.4 0Z" />
-    </svg>
-  );
-}
-
-function ChevronIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  );
-}
-
-function DocumentIcon() {
-  return (
-    <svg
-      width="17"
-      height="17"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
-      <path d="M14 2v6h6" />
-      <path d="M8 13h8" />
-      <path d="M8 17h5" />
-    </svg>
-  );
-}
-
-function SourceIcon() {
-  return (
-    <svg
-      width="17"
-      height="17"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="12" cy="12" r="9" />
-      <path d="M8.5 12.5 11 15l4.5-5" />
-    </svg>
-  );
-}
-
-function ShieldIcon() {
-  return (
-    <svg
-      width="17"
-      height="17"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 3 19 6v5c0 4.7-2.8 8-7 10-4.2-2-7-5.3-7-10V6l7-3Z" />
-      <path d="m9 12 2 2 4-4" />
-    </svg>
   );
 }

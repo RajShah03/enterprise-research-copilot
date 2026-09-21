@@ -1,5 +1,6 @@
 import pickle
 import re
+import shutil
 from pathlib import Path
 
 import chromadb
@@ -26,27 +27,19 @@ from llama_index.core.storage.docstore import (
 from rank_bm25 import BM25Okapi
 
 from app.config import embed_model
-
-
-# ============================================================
-# Configuration
-# ============================================================
-
-DB_DIR = "./chroma_db"
-DATA_DIR = "./data"
-
-CHROMA_COLLECTION_NAME = "financial_docs"
-
-ARTIFACT_DIR = Path("./storage")
-BM25_PATH = ARTIFACT_DIR / "bm25.pkl"
-NODES_PATH = ARTIFACT_DIR / "nodes.pkl"
+from app.persistence import (
+    get_document_paths,
+    save_document_metadata,
+)
 
 
 # ============================================================
 # BM25 Tokenizer
 # ============================================================
 
-def tokenize_for_bm25(text: str):
+def tokenize_for_bm25(
+    text: str,
+):
     """
     Tokenizes financial text while preserving:
     - numbers
@@ -75,141 +68,130 @@ def tokenize_for_bm25(text: str):
 
 
 # ============================================================
-# Reset Chroma Collection
+# Document Ingestion
 # ============================================================
 
-def _reset_chroma_collection(db):
-    """
-    Rebuilds the financial document collection from scratch.
-
-    This prevents old vectors from remaining when the source
-    documents are re-ingested.
-    """
-
-    existing_collections = {
-        collection.name
-        for collection in db.list_collections()
-    }
-
-    if CHROMA_COLLECTION_NAME in existing_collections:
-
-        print(
-            f"🗑️ Removing existing Chroma collection: "
-            f"{CHROMA_COLLECTION_NAME}"
-        )
-
-        db.delete_collection(
-            CHROMA_COLLECTION_NAME
-        )
-
-    return db.create_collection(
-        CHROMA_COLLECTION_NAME
-    )
-
-
-# ============================================================
-# Save BM25 + Node Artifacts
-# ============================================================
-
-def _save_artifacts(
-    bm25,
-    nodes,
-    leaf_nodes,
+def ingest_pdf(
+    source_pdf: Path,
+    document_id: str,
 ):
     """
-    Persists the non-Chroma RAG artifacts needed by the
-    serving application.
+    Creates an isolated RAG workspace for one PDF.
 
-    Full nodes are saved so that parent expansion can be added
-    later without re-ingesting the documents.
+    Returns:
+        document_id
+        filename
+        leaf_node_count
     """
 
-    ARTIFACT_DIR.mkdir(
+    source_pdf = Path(
+        source_pdf
+    ).resolve()
+
+    if not source_pdf.exists():
+        raise FileNotFoundError(
+            f"PDF not found: {source_pdf}"
+        )
+
+    if source_pdf.suffix.lower() != ".pdf":
+        raise ValueError(
+            "Only PDF files are supported."
+        )
+
+    paths = get_document_paths(
+        document_id
+    )
+
+    workspace_dir = (
+        paths["workspace_dir"]
+    )
+
+    workspace_dir.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    with BM25_PATH.open(
-        "wb"
-    ) as file:
+    artifact_dir = (
+        paths["artifact_dir"]
+    )
 
-        pickle.dump(
-            bm25,
-            file,
+    artifact_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    chroma_dir = (
+        paths["chroma_dir"]
+    )
+
+    chroma_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    # --------------------------------------------------------
+    # Copy source PDF into its isolated workspace
+    # --------------------------------------------------------
+
+    destination_pdf = (
+    workspace_dir /
+    source_pdf.name
+    )
+
+    if (
+        source_pdf.resolve()
+        != destination_pdf.resolve()
+    ):
+        shutil.copy2(
+            source_pdf,
+            destination_pdf,
         )
 
-    with NODES_PATH.open(
-        "wb"
-    ) as file:
-
-        pickle.dump(
-            {
-                "nodes": nodes,
-                "leaf_nodes": leaf_nodes,
-            },
-            file,
-        )
-
     print(
-        f"💾 Saved BM25 index: {BM25_PATH}"
+        f"\n📥 Ingesting document: "
+        f"{source_pdf.name}"
     )
 
-    print(
-        f"💾 Saved node artifacts: {NODES_PATH}"
-    )
-
-
-# ============================================================
-# Ingestion
-# ============================================================
-
-def run_ingestion():
-
-    print(
-        "\n📥 Starting document ingestion..."
-    )
-
-    # ========================================================
-    # 1. Load documents
-    # ========================================================
-
-    print(
-        "📂 Loading documents from data/..."
-    )
+    # --------------------------------------------------------
+    # Load document
+    # --------------------------------------------------------
 
     reader = SimpleDirectoryReader(
-        DATA_DIR
+        str(workspace_dir)
     )
 
     documents = reader.load_data()
 
     if not documents:
-
         raise ValueError(
-            "No documents found in data/ directory."
+            "No readable content found in the PDF."
         )
 
     print(
         f"📄 Loaded {len(documents)} document(s)."
     )
 
-    # ========================================================
-    # 2. Hierarchical chunking
-    # ========================================================
+    # --------------------------------------------------------
+    # Hierarchical nodes
+    # --------------------------------------------------------
 
     print(
-        "🧩 Creating hierarchical parent-child nodes..."
+        "🧩 Creating hierarchical nodes..."
     )
 
-    node_parser = HierarchicalNodeParser.from_defaults(
-        chunk_sizes=[
-            1024,
-            128,
-        ]
+    node_parser = (
+        HierarchicalNodeParser.from_defaults(
+            chunk_sizes=[
+                1024,
+                128,
+            ]
+        )
     )
 
-    nodes = node_parser.get_nodes_from_documents(
-        documents
+    nodes = (
+        node_parser.get_nodes_from_documents(
+            documents
+        )
     )
 
     leaf_nodes = get_leaf_nodes(
@@ -226,29 +208,31 @@ def run_ingestion():
         f"{len(leaf_nodes)}"
     )
 
-    # ========================================================
-    # 3. ChromaDB
-    # ========================================================
+    # --------------------------------------------------------
+    # ChromaDB
+    # --------------------------------------------------------
 
     print(
-        "🗄️ Connecting to ChromaDB..."
+        "🗄️ Creating document-specific ChromaDB..."
     )
 
     db = chromadb.PersistentClient(
-        path=DB_DIR
+        path=str(chroma_dir)
     )
 
-    chroma_collection = _reset_chroma_collection(
-        db
+    chroma_collection = (
+        db.create_collection(
+            paths["collection_name"]
+        )
     )
 
     vector_store = ChromaVectorStore(
         chroma_collection=chroma_collection
     )
 
-    # ========================================================
-    # 4. Document store
-    # ========================================================
+    # --------------------------------------------------------
+    # Docstore + Vector Index
+    # --------------------------------------------------------
 
     docstore = SimpleDocumentStore()
 
@@ -256,14 +240,12 @@ def run_ingestion():
         nodes
     )
 
-    storage_context = StorageContext.from_defaults(
-        vector_store=vector_store,
-        docstore=docstore,
+    storage_context = (
+        StorageContext.from_defaults(
+            vector_store=vector_store,
+            docstore=docstore,
+        )
     )
-
-    # ========================================================
-    # 5. Vector index
-    # ========================================================
 
     print(
         "🧠 Creating vector index..."
@@ -275,9 +257,9 @@ def run_ingestion():
         embed_model=embed_model,
     )
 
-    # ========================================================
-    # 6. BM25
-    # ========================================================
+    # --------------------------------------------------------
+    # BM25
+    # --------------------------------------------------------
 
     print(
         "🔍 Building BM25 index..."
@@ -294,37 +276,57 @@ def run_ingestion():
         tokenized_corpus
     )
 
-    # ========================================================
-    # 7. Persist artifacts
-    # ========================================================
+    with paths["bm25_path"].open(
+        "wb"
+    ) as file:
+        pickle.dump(
+            bm25,
+            file,
+        )
 
-    _save_artifacts(
-        bm25=bm25,
-        nodes=nodes,
-        leaf_nodes=leaf_nodes,
+    with paths["nodes_path"].open(
+        "wb"
+    ) as file:
+        pickle.dump(
+            {
+                "nodes": nodes,
+                "leaf_nodes": leaf_nodes,
+            },
+            file,
+        )
+
+    # --------------------------------------------------------
+    # Metadata
+    # --------------------------------------------------------
+
+    save_document_metadata(
+        document_id=document_id,
+        filename=source_pdf.name,
+        leaf_node_count=len(
+            leaf_nodes
+        ),
     )
 
     print(
-        "\n✅ Ingestion complete!"
+        "\n✅ Document ingestion complete."
     )
 
     print(
-        "📚 Chroma vectors persisted."
+        f"📄 Document: {source_pdf.name}"
     )
 
     print(
-        "🔍 BM25 index persisted."
+        f"🔹 Leaf nodes: {len(leaf_nodes)}"
     )
 
     print(
-        "🧩 Node hierarchy persisted."
+        f"🆔 Document ID: {document_id}"
     )
 
-
-# ============================================================
-# Standalone
-# ============================================================
-
-if __name__ == "__main__":
-
-    run_ingestion()
+    return {
+        "document_id": document_id,
+        "filename": source_pdf.name,
+        "leaf_node_count": len(
+            leaf_nodes
+        ),
+    }

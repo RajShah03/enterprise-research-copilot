@@ -9,10 +9,11 @@ from app.ingestion import tokenize_for_bm25
 class HybridRetriever:
 
     def __init__(
-        self,
-        index,
-        bm25,
-        leaf_nodes,
+    self,
+    index,
+    bm25,
+    leaf_nodes,
+    reranker=None,
     ):
         self.index = index
         self.bm25 = bm25
@@ -36,8 +37,12 @@ class HybridRetriever:
             "⚡ Loading FlashRank reranker..."
         )
 
-        self.flashrank = Ranker(
-            model_name="ms-marco-MiniLM-L-12-v2"
+        self.flashrank = (
+            reranker
+            if reranker is not None
+            else Ranker(
+                model_name="ms-marco-MiniLM-L-12-v2"
+            )
         )
 
         print(
