@@ -807,9 +807,12 @@ No additional advanced RAG components are required for the current project miles
 
 ## License
 
-Add an appropriate license before public distribution if required.
+## License
 
-Also verify that any third-party documents placed in `data/` may legally be redistributed before publishing them with the project.
+No open-source license has been applied to this repository.
+All rights are reserved by the author unless otherwise stated.
+
+Any third-party documents used with the application may be subject to their own copyright and usage restrictions.
 
 ---
 
