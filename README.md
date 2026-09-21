@@ -807,8 +807,6 @@ No additional advanced RAG components are required for the current project miles
 
 ## License
 
-## License
-
 No open-source license has been applied to this repository.
 All rights are reserved by the author unless otherwise stated.
 
