@@ -1,4 +1,6 @@
-# Enterprise Research Copilot
+# Evidentia
+
+**Evidence-Grounded Document Intelligence**
 
 A full-stack **RAG/CRAG application** that lets users upload any PDF and chat with it using **hybrid retrieval, FlashRank reranking, evidence evaluation, corrective retrieval, and Groq-powered generation**.
 
@@ -69,7 +71,7 @@ Each uploaded PDF gets its own `document_id` and isolated ChromaDB, BM25, and no
 ## Project Structure
 
 ```text
-enterprise-research-copilot/
+evidentia/
 │
 ├── app/
 │   ├── agent.py
@@ -230,3 +232,6 @@ Any third-party documents used with the application may be subject to their own 
 
 GitHub: https://github.com/RajShah03
 LinkedIn: https://www.linkedin.com/in/raj22shah/
+
+```
+```

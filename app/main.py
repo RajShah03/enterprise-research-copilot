@@ -46,7 +46,7 @@ async def lifespan(
     app: FastAPI,
 ):
     print(
-        "\n🚀 Starting Enterprise Research Copilot API..."
+        "\n🚀 Starting Evidentia API..."
     )
 
     print(
@@ -60,13 +60,13 @@ async def lifespan(
     app.state.document_agents = {}
 
     print(
-        "✅ Enterprise Research Copilot ready."
+        "✅ Evidentia ready."
     )
 
     yield
 
     print(
-        "\n🛑 Shutting down Enterprise Research Copilot..."
+        "\n🛑 Shutting down Evidentia..."
     )
 
     app.state.document_agents.clear()
@@ -78,7 +78,7 @@ async def lifespan(
 # ============================================================
 
 app = FastAPI(
-    title="Enterprise Research Copilot API",
+    title="Evidentia API",
     version="2.0.0",
     lifespan=lifespan,
 )
@@ -179,7 +179,7 @@ def health_check():
 
     return {
         "status": "ok",
-        "service": "enterprise-research-copilot",
+        "service": "evidentia",
     }
 
 

@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "Enterprise Research Copilot",
+  title: "Evidentia",
   description:
-    "Document-grounded research assistant powered by Corrective RAG.",
+    "Evidence-grounded document intelligence powered by Corrective RAG.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

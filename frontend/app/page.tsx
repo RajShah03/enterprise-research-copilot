@@ -87,7 +87,7 @@ export default function Home() {
   useEffect(() => {
     const savedTheme =
       window.localStorage.getItem(
-        "enterprise-copilot-theme"
+        "evidentia-theme"
       );
 
     if (savedTheme === "dark") {
@@ -97,7 +97,7 @@ export default function Home() {
 
   useEffect(() => {
     window.localStorage.setItem(
-      "enterprise-copilot-theme",
+      "evidentia-theme",
       darkMode ? "dark" : "light"
     );
   }, [darkMode]);
@@ -503,7 +503,7 @@ export default function Home() {
                 </div>
 
                 <span className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
-                  Research Copilot
+                  Evidentia
                 </span>
 
               </div>
